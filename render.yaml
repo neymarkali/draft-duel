@@ -1,0 +1,26 @@
+# Render Blueprint: one click deploy from a GitHub repo. Free plan is for TESTING only:
+# its disk is wiped on every restart/redeploy, so accounts and history are lost.
+# For real use switch to a paid plan and uncomment the disk block.
+services:
+  - type: web
+    name: draft-duel
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/config
+    envVars:
+      - key: DB_PATH
+        value: /data/draft-duel.db
+      - key: BASE_URL
+        sync: false
+      - key: ADMIN_KEY
+        generateValue: true
+      - key: FOOTBALL_DATA_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: RESEND_KEY
+        sync: false
+    # disk:            # paid plans only
+    #   name: data
+    #   mountPath: /data
+    #   sizeGB: 1
