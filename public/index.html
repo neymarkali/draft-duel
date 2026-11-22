@@ -318,6 +318,27 @@ bdi{unicode-bidi:isolate}
 .ach span{font-size:13px;padding:7px 12px;border:1px solid var(--line);border-radius:4px;color:var(--muted)}
 .ach span.got{color:var(--good);border-color:rgba(127,224,180,.5)}
 .ach span.lock{opacity:.55}
+.pf-id{display:flex;align-items:center;gap:22px;min-width:0}
+/* Profile frames: country podium = static ring, global podium = same colours, glowing and slowly turning.
+   Only transform and opacity animate, so it stays on the GPU. Turned off on low-end devices (.lite). */
+.avatar{position:relative;width:92px;height:92px;flex:none;display:grid;place-items:center;border-radius:50%;background:var(--panel-2);font:400 40px/1 var(--f-display);isolation:isolate}
+.avatar .fr{position:absolute;inset:-7px;border-radius:50%;pointer-events:none;z-index:-1;
+  background:conic-gradient(var(--c1),var(--c2),var(--c3),var(--c2),var(--c1));
+  -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 6px),#000 calc(100% - 5px));mask:radial-gradient(farthest-side,transparent calc(100% - 6px),#000 calc(100% - 5px))}
+.avatar.none .fr{display:none}
+.f-diamond{--c1:#c9f4ff;--c2:#4fc3ff;--c3:#f2fdff;--gl:rgba(90,205,255,.6)}
+.f-gold{--c1:#ffe48c;--c2:#d19a0f;--c3:#fff4c4;--gl:rgba(255,200,70,.6)}
+.f-bronze{--c1:#f0b47c;--c2:#8c5524;--c3:#f8d3ad;--gl:rgba(220,140,80,.55)}
+.avatar.anim .fr{inset:-9px;will-change:transform;animation:frspin 4.5s linear infinite}
+.avatar.anim::before{content:"";position:absolute;inset:-26px;border-radius:50%;z-index:-2;pointer-events:none;background:radial-gradient(circle,var(--gl) 30%,transparent 68%);will-change:transform,opacity;animation:frpulse 2.2s ease-in-out infinite alternate}
+@keyframes frspin{to{transform:rotate(360deg)}}
+@keyframes frpulse{from{opacity:.45;transform:scale(.92)}to{opacity:1;transform:scale(1.06)}}
+.lite .avatar.anim .fr,.lite .avatar.anim::before{animation:none}
+@media (prefers-reduced-motion:reduce){.avatar.anim .fr,.avatar.anim::before{animation:none}}
+.frlabel{font:600 13px/1 var(--f-body);padding:6px 12px;border-radius:999px;border:1px solid var(--c2,var(--line));color:var(--c1,var(--chalk))}
+.ach span.got.r-rare{color:#8fd0ff;border-color:rgba(143,208,255,.55)}
+.ach span.got.r-epic{color:#d9a6ff;border-color:rgba(217,166,255,.6)}
+.ach span.got.r-legendary{color:#ffd76a;border-color:rgba(255,215,106,.75);background:rgba(255,200,70,.08)}
 .pf-cols{display:grid;grid-template-columns:1fr 1fr;gap:28px;margin-top:30px}
 .hist{list-style:none;margin:8px 0 0;padding:0}
 .hist li{display:grid;grid-template-columns:44px 1fr auto;gap:10px;align-items:center;padding:9px 4px;border-bottom:1px dashed var(--line);font-size:14px}
@@ -457,10 +478,11 @@ bdi{unicode-bidi:isolate}
     <!-- PROFILE -->
     <section id="s-profile" hidden>
       <div class="pf-head">
+        <div class="pf-id"><div class="avatar none" id="pfAvatar"><i class="fr"></i><span id="pfInit"></span></div>
         <div>
           <h2 id="pfName"></h2>
-          <div class="pf-meta"><span class="tier" id="pfTier"></span><span id="pfCountry"></span><span id="pfSince"></span></div>
-        </div>
+          <div class="pf-meta"><span class="tier" id="pfTier"></span><span id="pfCountry"></span><span id="pfSince"></span><span class="frlabel" id="pfFrame" hidden></span></div>
+        </div></div>
         <div class="btnrow">
           <button class="btn small" id="btnPfPlay" type="button">مبارزة جديدة</button>
           <button class="btn ghost" id="btnPfShare" type="button">انسخ رابط ملفي</button>
@@ -605,6 +627,7 @@ bdi{unicode-bidi:isolate}
 <div class="toast" id="toast" role="status" aria-live="polite"><span id="toastTxt"></span></div>
 
 <script>
+try{if((navigator.hardwareConcurrency&&navigator.hardwareConcurrency<=4)||(navigator.deviceMemory&&navigator.deviceMemory<=2))document.documentElement.classList.add("lite");}catch(e){}
 (function(){
 'use strict';
 
@@ -827,6 +850,12 @@ function loadProfile(id){
 function renderProfile(pr,own){
   var s=pr.stats;
   $('pfName').textContent=pr.name;
+  var fr=pr.rank&&pr.rank.frame,av=$('pfAvatar'),fl=$('pfFrame');
+  $('pfInit').textContent=(pr.name||'?').trim().charAt(0);
+  av.className='avatar'+(fr?' f-'+fr.tier+(fr.animated?' anim':''):' none');
+  fl.className='frlabel'+(fr?' f-'+fr.tier:'');
+  fl.hidden=!fr;
+  if(fr){var nm=fr.scope==='global'?'عالمياً':'في '+cname(pr.country);fl.textContent=fr.rank===1?'الأول '+nm:fr.rank===2?'الثاني '+nm:'الثالث '+nm;}
   var t=$('pfTier');t.textContent=s.tier.name;t.className='tier '+(TIER_CLASS[s.tier.id]||'');
   $('pfCountry').textContent=cname(pr.country);
   var d=new Date(pr.since);
@@ -837,7 +866,7 @@ function renderProfile(pr,own){
     ['avg',s.avgScore,'متوسط النقاط'],['bold',s.boldTotal,'اختيارات جريئة ناجحة']
   ];
   $('pfStats').innerHTML=tiles.map(function(x){return '<div class="stat'+(x[3]?' hl':'')+'"><b>'+x[1]+'</b><span>'+x[2]+'</span></div>';}).join('');
-  $('pfAch').innerHTML=pr.achievements.map(function(a){return '<span class="'+(a.got?'got':'lock')+'">'+(a.got?'✓ ':'')+esc(a.name)+'</span>';}).join('');
+  $('pfAch').innerHTML=pr.achievements.map(function(a){return '<span class="'+(a.got?'got':'lock')+' r-'+(a.rarity||'common')+'">'+(a.got?'✓ ':'')+esc(a.name)+'</span>';}).join('');
   $('pfHist').innerHTML=pr.recent.length?pr.recent.map(function(r){
     var lab=r.outcome==='win'?'فوز':r.outcome==='draw'?'تعادل':'خسارة';
     return '<li><span class="o '+r.outcome+'">'+lab+'</span><span>ضد '+esc(r.opp_name)+'<br><span class="sub2">'+cname(r.opp_country)+' · '+new Date(r.ts).toLocaleDateString('ar')+'</span></span><span class="sc">'+r.mine+' - '+r.theirs+'</span></li>';
