@@ -8,6 +8,7 @@ const { open } = require('./lib/db');
 const duel = require('./lib/duel');
 const { COUNTRIES, BOLD_RATE } = require('./lib/scoring');
 const sync = require('./lib/sync');
+const apif = require('./lib/apif');
 const auth_ = require('./lib/auth');
 const prof = require('./lib/profile');
 
@@ -19,12 +20,17 @@ try { // tiny .env loader
 
 const PORT = +process.env.PORT || 3000;
 const KEY = process.env.FOOTBALL_DATA_KEY || '';
-const LEAGUES = (process.env.LEAGUES || 'PD,SA').split(',');
+const APIF = process.env.APIF_KEY || '';
+const SEASON = +process.env.SEASON || 2024;
+const REPLAY = process.env.REPLAY ? process.env.REPLAY === '1' : SEASON <= 2024; // free API-Football plan: old seasons only
+const LEAGUES = (process.env.LEAGUES || 'PL,PD,SA').split(',');
 const ADMIN = process.env.ADMIN_KEY || '';
-const DEMO = process.env.DEMO ? process.env.DEMO === '1' : !KEY;
+const DEMO = process.env.DEMO ? process.env.DEMO === '1' : !(KEY || APIF);
 const db = open(process.env.DB_PATH || path.join(__dirname, 'data', 'draft-duel.db'));
 const ctx = { db, demo: DEMO };
 const log = (m) => console.log(new Date().toISOString() + ' ' + m);
+const doRound = (L) => APIF ? apif.syncRound(ctx, APIF, LEAGUES, { season: SEASON, replay: REPLAY }, L) : sync.syncSquads(ctx, KEY, LEAGUES, L);
+const doResults = (L) => APIF ? apif.syncResults(ctx, APIF, { replay: REPLAY }, L) : sync.syncResults(ctx, KEY, L);
 
 const PUB = path.join(__dirname, 'public');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
@@ -78,12 +84,12 @@ async function api(req, res, url) {
 
   if (p.startsWith('/api/admin/')) {
     if (!ADMIN || url.searchParams.get('key') !== ADMIN) return json(res, 403, { error: 'forbidden' });
-    if (!KEY) return json(res, 400, { error: 'FOOTBALL_DATA_KEY not set' });
+    if (!KEY && !APIF) return json(res, 400, { error: 'APIF_KEY or FOOTBALL_DATA_KEY not set' });
     const out = [];
     const L = (x) => { out.push(x); log(x); };
     try {
-      if (p === '/api/admin/sync') await sync.syncSquads(ctx, KEY, LEAGUES, L);
-      else if (p === '/api/admin/results') await sync.syncResults(ctx, KEY, L);
+      if (p === '/api/admin/sync') await doRound(L);
+      else if (p === '/api/admin/results') await doResults(L);
       else return json(res, 404, { error: 'not_found' });
       return json(res, 200, { ok: true, log: out });
     } catch (e) { return json(res, 500, { error: String(e.message), log: out }); }
@@ -148,14 +154,14 @@ const server = http.createServer(async (req, res) => {
 });
 
 if (require.main === module) {
-  server.listen(PORT, () => log(`Draft Duel on http://localhost:${PORT}  mode=${DEMO ? 'DEMO (simulated results)' : 'LIVE (football-data.org)'}`));
-  if (!DEMO && KEY) {
+  server.listen(PORT, () => log(`Draft Duel on http://localhost:${PORT}  mode=${DEMO ? 'DEMO (simulated results)' : APIF ? 'API-Football season ' + SEASON + (REPLAY ? ' (replay)' : ' (live)') : 'LIVE (football-data.org)'}`));
+  if (!DEMO && (KEY || APIF)) {
     const tick = async () => {
       try {
         const open = db.prepare("SELECT v FROM meta WHERE k='open_md'").get();
-        if (!open) { await sync.syncSquads(ctx, KEY, LEAGUES, log); return; }
-        const r = await sync.syncResults(ctx, KEY, log);
-        if (r.finished) await sync.syncSquads(ctx, KEY, LEAGUES, log);
+        if (!open) { await doRound(log); return; }
+        const r = await doResults(log);
+        if (r.finished) await doRound(log);
       } catch (e) { log('sync error: ' + e.message); }
     };
     tick();
